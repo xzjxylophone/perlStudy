@@ -62,7 +62,11 @@ my $projectName = $Config->{section}->{projectName};#项目名称
 my $author = $Config->{section}->{author};
 my $version = $Config->{section}->{version};
 my $copyright = $Config->{section}->{copyright};
-my $implTmpl = "";
+# 是否是固定的时间,默认是false
+my $confirmedDateTime = $Config->{section}->{confirmedDateTime};
+# 如果是固定的时间,那么此值就是固定时间
+my $confirmedDateTimeString = $Config->{section}->{confirmedDateTimeString};
+
 my $splitFlag = "_";
 
 my $originEntityPackage = "";
@@ -290,7 +294,9 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
         if ($line =~ /table tableName="([^"]+)" domainObjectName="([^"]+)" /) {
 
             $dateString = strftime "%Y-%m-%d %H:%M:%S", localtime;
-            $dateString = "2017-06-19 15:29:07";
+            if ($confirmedDateTime) {
+                $dateString = $confirmedDateTimeString;
+            }
             print "dateString:  $dateString\n";
 
             $curTableName = $1;
@@ -673,6 +679,11 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
 
 #删除generator.jar 自动生成的代码
 rmtree('./src');
+
+
+
+# 复制相关的目录到相关的文件中去
+
 
 `pause`;
 
