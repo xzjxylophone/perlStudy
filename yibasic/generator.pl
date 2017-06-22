@@ -54,11 +54,14 @@ system($javaGeneratorCode);
 
 use File::Path;
 use Config::Tiny;
-#读取配置文件
+# 读取配置文件
 my $Config = Config::Tiny->new;
 $Config = Config::Tiny->read('./config.ini');
 
-my $projectName = $Config->{section}->{projectName};#项目名称
+# 项目名称
+my $projectName = $Config->{section}->{projectName};
+my $javaProjectDir = $Config->{section}->{javaProjectDir};
+
 my $author = $Config->{section}->{author};
 my $version = $Config->{section}->{version};
 my $copyright = $Config->{section}->{copyright};
@@ -179,13 +182,12 @@ sub getDaoMethodComments {
                 $paramNameDesc = $Config->{className}->{lc($paramType)}."记录";
                 $returnTypeDesc = $destEntityPackage.".".$paramType;
             }
-            print "111111111111111111111111111111111111111111111111111111111111111i: $i\n"; 
-            print "keyword: $keyword\n"; 
-            print "paramType: $paramType\n"; 
-            print "paramName: $paramName\n"; 
-            print "paramNameDesc: $paramNameDesc\n"; 
-            print "returnTypeDesc: $returnTypeDesc\n"; 
-            print "returnType: $returnType\n";  
+            # print "keyword: $keyword\n"; 
+            # print "paramType: $paramType\n"; 
+            # print "paramName: $paramName\n"; 
+            # print "paramNameDesc: $paramNameDesc\n"; 
+            # print "returnTypeDesc: $returnTypeDesc\n"; 
+            # print "returnType: $returnType\n";  
 
             $newLine .= "    /**\n";
             $newLine .= "     *\n";
@@ -223,7 +225,6 @@ sub getDaoMethodComments {
                 $daoImplContent .= "        return ".$paramName.";\n";
             }
 
-            print "daoImplContent: $daoImplContent\n";  
             $daoImplContent .= "    }\n";
             $daoImplContent .= "\n";
             
@@ -258,7 +259,6 @@ sub getDaoMethodComments {
 
 
 if (open(GENERATORFILE, $generatorXmlFile)) {
-
     while ($line = <GENERATORFILE>) {
         if ($line =~ /<javaModelGenerator/) {
             if ($line =~ /targetPackage="([^"]+)"/) {
@@ -303,13 +303,14 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
             $curEntityClassName = $2;
             # 是否包含分隔符"_"
             if ($curTableName =~ /$splitFlag/) {
-                @array = split(/$splitFlag/, $curTableName); #数组使用@
+                @array = split(/$splitFlag/, $curTableName);
                 $curModule = @array[0];
             } else {
                 $curModule = $curTableName;
             }
             
-            if ("sys" eq $curModule || "ou" eq $curModule) { #当模块名为sys和ou时，项目名为common；模块名为其他时，项目名为配置的项目名称；该设置为处理包结构中sys和ou部分的位置
+            # 当模块名为sys和ou时，项目名为common；模块名为其他时，项目名为配置的项目名称；该设置为处理包结构中sys和ou部分的位置
+            if ("sys" eq $curModule || "ou" eq $curModule) { 
                 $curProject = "common";
             } else {
                 $curProject = $projectName;
@@ -336,20 +337,41 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
             $destDaoImplClassName = $destDaoInterfaceName."Impl";
             $destDaoImplRepositoryValue = $headerName."Dao";
 
-            my $inputEntityFile = "./src/".$originEntityDir."/".$curEntityClassName.".java";
-            my $outputEntityFileDir = "./".$resultCodeDirName."/".$projectName."-base/src/main/java/".$replacePackageDir."/entity";
-            my $outputEntityFile = $outputEntityFileDir."/".$curEntityClassName.".java";
+            my $srcDir = "./src";
+            my $startDir = "./".$resultCodeDirName;
 
-            my $inputMapperFile = "./src/".$originMapperDir."/".$curEntityClassName."Mapper.xml";
-            my $outputMapperFileDir = "./".$resultCodeDirName."/".$projectName."-base/src/main/resources/".$replacePackageDir."/entity/mapping";
+            my $inputEntityFile = $srcDir."/".$originEntityDir."/".$curEntityClassName.".java";
+            my $outputEntityFileDir = $startDir."/".$projectName."-base/src/main/java/".$replacePackageDir."/entity";
+            my $outputEntityFile = $outputEntityFileDir."/".$curEntityClassName.".java";
+            my $javeEntityFile = $outputEntityFile;
+            $javeEntityFile =~ s/$startDir/$javaProjectDir/g;
+
+            my $inputMapperFile = $srcDir."/".$originMapperDir."/".$curEntityClassName."Mapper.xml";
+            my $outputMapperFileDir = $startDir."/".$projectName."-base/src/main/resources/".$replacePackageDir."/entity/mapping";
             my $outputMapperExtendFileDir = $outputMapperFileDir."/extend";
             my $outputMapperFile = $outputMapperFileDir."/".$curEntityClassName."Mapper.xml";
+            # my $javeMapperFile = $javaProjectDir."/".$curEntityClassName.".java";
+            my $javeMapperFile = $outputMapperFile;
+            $javeMapperFile =~ s/$startDir/$javaProjectDir/g;
 
-            my $inputDaoFile = "./src/".$originDaoDir."/".$originDaoInterfaceName.".java";
-            my $outputDaoFileDir = "./".$resultCodeDirName."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao";
+            my $javeMapperExtendFileDir = $outputMapperExtendFileDir;
+            $javeMapperExtendFileDir =~ s/$startDir/$javaProjectDir/g;
+
+
+            my $inputDaoFile = $srcDir."/".$originDaoDir."/".$originDaoInterfaceName.".java";
+            my $outputDaoFileDir = $startDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao";
             my $outputDaoFile = $outputDaoFileDir."/".$destDaoInterfaceName.".java";
-            my $outputDaoImplFileDir = "./".$resultCodeDirName."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao/impl";
+            my $outputDaoImplFileDir = $startDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao/impl";
             my $outputDaoImplFile = $outputDaoImplFileDir."/".$curEntityClassName."DaoImpl.java";
+
+            my $javeDaoFile = $outputDaoFile;
+            $javeDaoFile =~ s/$startDir/$javaProjectDir/g;
+
+
+            my $javeDaoImplFile = $outputDaoImplFile;
+            $javeDaoImplFile =~ s/$startDir/$javaProjectDir/g;
+
+
 
             if ($isDoubleForeignKey) {
                 $curEntityClassName = $curEntityClassName."Key";
@@ -372,20 +394,28 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
             print "destDaoImplClassName:       $destDaoImplClassName\n";
             print "destDaoImplRepositoryValue: $destDaoImplRepositoryValue\n";
             print "\n\n\n";
-            print "inputEntityFile: $inputEntityFile\n";
-            print "outputEntityFileDir: $outputEntityFileDir\n";
-            print "outputEntityFile: $outputEntityFile\n";
+            print "srcDir:                      $srcDir\n";
+            print "startDir:                    $startDir\n";
+
+            print "inputEntityFile:             $inputEntityFile\n";
+            print "outputEntityFileDir:         $outputEntityFileDir\n";
+            print "outputEntityFile:            $outputEntityFile\n";
+            print "javeEntityFile:              $javeEntityFile\n";
             print "\n\n\n";
-            print "inputMapperFile: $inputMapperFile\n";
-            print "outputMapperFileDir: $outputMapperFileDir\n";
-            print "outputMapperExtendFileDir: $outputMapperExtendFileDir\n";
-            print "outputMapperFile: $outputMapperFile\n";
+            print "inputMapperFile:             $inputMapperFile\n";
+            print "outputMapperFileDir:         $outputMapperFileDir\n";
+            print "outputMapperExtendFileDir:   $outputMapperExtendFileDir\n";
+            print "outputMapperFile:            $outputMapperFile\n";
+            print "javeMapperFile:              $javeMapperFile\n";
+            print "javeMapperExtendFileDir:     $javeMapperExtendFileDir\n";
             print "\n\n\n";
-            print "inputDaoFile: $inputDaoFile\n";
-            print "outputDaoFileDir: $outputDaoFileDir\n";
-            print "outputDaoFile: $outputDaoFile\n";
-            print "outputDaoImplFileDir: $outputDaoImplFileDir\n";
-            print "outputDaoImplFile: $outputDaoImplFile\n";
+            print "inputDaoFile:                $inputDaoFile\n";
+            print "outputDaoFileDir:            $outputDaoFileDir\n";
+            print "outputDaoFile:               $outputDaoFile\n";
+            print "outputDaoImplFileDir:        $outputDaoImplFileDir\n";
+            print "outputDaoImplFile:           $outputDaoImplFile\n";
+            print "javeDaoFile:                 $javeDaoFile\n";
+            print "javeDaoImplFile:             $javeDaoImplFile\n";
 
 
 
@@ -536,9 +566,9 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
                 #根据目录结构创建文件路径，然后将文件写入
                 mkpath($outputMapperFileDir, 1, 0777); #参数1为是否打印目录，0777为系统内部权限
                 mkpath($outputMapperExtendFileDir, 1, 0777); 
-                print "outputMapperFileDir:  $outputMapperFileDir\n";
-                print "outputMapperExtendFileDir:  $outputMapperExtendFileDir\n";
-                print "outputMapperFile:  $outputMapperFile\n";
+                # print "outputMapperFileDir:  $outputMapperFileDir\n";
+                # print "outputMapperExtendFileDir:  $outputMapperExtendFileDir\n";
+                # print "outputMapperFile:  $outputMapperFile\n";
                 open(DATAFILE, ">$outputMapperFile");
                 print DATAFILE ($xmlCode);
                 close(DATAFILE);
@@ -638,24 +668,17 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
                 }
                 close(DAOFILE);
 
-
-
-
-                
                 mkpath($outputDaoFileDir, 1, 0777);
-                print "outputDaoFileDir:  $outputDaoFileDir\n";
-                print "outputDaoFile:  $outputDaoFile\n";
+                # print "outputDaoFileDir:  $outputDaoFileDir\n";
+                # print "outputDaoFile:  $outputDaoFile\n";
                 open(OUTDAO, ">$outputDaoFile");
                 print OUTDAO ($idaoCode);
                 close(OUTDAO);
 
-
                 #生成dao impl实现路径
-
-                # print "输出daoImplContent:".$daoImplContent;
                 mkpath($outputDaoImplFileDir, 1, 0777);
-                print "outputDaoImplFileDir:  $outputDaoImplFileDir\n";
-                print "outputDaoImplFile:  $outputDaoImplFile\n";
+                # print "outputDaoImplFileDir:  $outputDaoImplFileDir\n";
+                # print "outputDaoImplFile:  $outputDaoImplFile\n";
                 open(OUTFILE, ">$outputDaoImplFile");
                 print OUTFILE ($daoImplContent);
                 close(OUTFILE);
