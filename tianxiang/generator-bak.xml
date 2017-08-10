@@ -3,7 +3,7 @@
         "http://mybatis.org/dtd/mybatis-generator-config_1_0.dtd">
 <generatorConfiguration>
 	<!-- 数据库驱动包位置 -->
-	<classPathEntry location="../common/mysql-connector-java-5.1.25-bin.jar" />
+	<classPathEntry location="../common/mysql-connecåtor-java-5.1.25-bin.jar" />
 	<context id="DB2Tables" targetRuntime="MyBatis3">
 		<commentGenerator >  
             <property name="suppressAllComments" value="true"/>
@@ -38,9 +38,6 @@
 		</javaClientGenerator>
 		<!-- 指定生成的表配置 -->
 		<!-- PC 个人中心 start -->
-
-
-		
 		<table tableName="pc_member" domainObjectName="Member" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
 			<generatedKey column="member_id" sqlStatement="JDBC" />
 			<columnOverride column="member_id" property="memberId" />
@@ -326,9 +323,7 @@
 			<columnOverride column="emailcaptcha_id" property="emailCaptchaId" />
 		</table>
 		<!-- 验证码 end -->
-
-
-
+       
 
 	</context>
 </generatorConfiguration>

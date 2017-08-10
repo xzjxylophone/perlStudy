@@ -4,6 +4,8 @@
 
 use Cwd;
 use POSIX qw(strftime);
+use File::Copy;
+
 my $dateString = "";
 # 当前目录的全路径
 my $curExeDir = getcwd;
@@ -60,6 +62,10 @@ $Config = Config::Tiny->read('./config.ini');
 
 # 项目名称
 my $projectName = $Config->{section}->{projectName};
+my $projectFullName = $Config->{section}->{projectFullName};
+
+
+my $projectRootDir = $Config->{section}->{projectRootDir};
 my $javaProjectDir = $Config->{section}->{javaProjectDir};
 
 my $author = $Config->{section}->{author};
@@ -80,7 +86,9 @@ my $originMapperPackage = "";
 my $originMapperDir = "";
 # 原始的Dao接口名称
 my $originDaoInterfaceName = "";
+my $primaryKeyId = "";
 
+my $curEntityKeyClassName = "";
 my $curEntityClassName = "";
 my $curTableName = "";
 my $curModule = "";
@@ -94,9 +102,58 @@ my $destDaoInterfaceName = "";
 my $destDaoImplClassName = "";
 my $destDaoImplRepositoryValue = "";
 
-my $isDoubleForeignKey = "0";
 
 my $daoImplContent = "";
+
+
+
+my $headerName = "";
+
+my $configInfo = "";
+my @configItems ;
+my $replacePackage = "";
+my $replacePackageDir = "";
+
+
+my $srcDir = "./src";
+my $startDir = "";
+
+my $inputEntityFile = "";
+my $inputEntityKeyFile = "";
+my $outputEntityFileDir = "";
+my $outputEntityFile = "";
+my $outputEntityKeyFile = "";
+my $projectEntityFileDir = "";
+my $projectEntityFile = "";
+my $projectEntityKeyFile = "";
+my $javeEntityFile = "";
+
+# entity 是否有xxxKey 的父类, 表是联合主键
+my $entityHaveBaseClass = 0;
+
+my $inputMapperFile = "";
+my $outputMapperFileDir = "";
+my $outputMapperExtendFileDir = "";
+my $outputMapperFile = "";
+my $projectMapperFileDir = "";
+my $projectMapperFile = "";
+my $javeMapperFile = "";
+
+my $javeMapperExtendFileDir = "";
+
+my $inputDaoFile = "";
+my $outputDaoFileDir = "";
+my $outputDaoFile = "";
+my $outputDaoImplFileDir = "";
+my $outputDaoImplFile = "";
+my $projectDaoFileDir = "";
+my $projectDaoFile = "";
+my $projectDaoImplFileDir = "";
+my $projectDaoImplFile = "";
+my $javeDaoFile = "";
+
+
+my $javeDaoImplFile = "";
 
 
 
@@ -117,10 +174,19 @@ my @daoImplSQLActions = ("", "", "delete", "insert", "insert", "selectOne", "upd
 # 先按照class.propertyName的方式找,如果没有找到那就直接按照propertyName方式去找
 sub getPropertyNameDesc {
     my $tmpPropertyName = $_[0];
+
+    if (isDefaultPrimaryKey($tmpPropertyName)) {
+        return "id";
+    } 
+
     my $tmpClassPropertyName = lc($curEntityClassName).".".lc($tmpPropertyName);
     my $tmpResult = $Config->{analysis}->{$tmpClassPropertyName};
     if ($tmpResult eq "") {
-        return $Config->{analysis}->{lc($tmpPropertyName)};
+        if (isDefaultPrimaryKey($tmpPropertyName)) {
+            return "id";
+        } else {
+            return $Config->{analysis}->{lc($tmpPropertyName)};
+        }
     } else {
         return $tmpResult;
     }
@@ -145,17 +211,24 @@ sub getMappingComments {
     return $newLine;
 }
 
+sub isDefaultPrimaryKey {
+    my $tmpParam = $_[0];
+    return lc($tmpParam) eq lc($primaryKeyId);
+}
+
 sub getDaoMethodComments {
     my $line = $_[0];
     my $newLine = "";
     my $size = @keywords;
 
     # 联合主键表的参数名称是: record 而非 id
-    my $deleteByPrimaryKeyParamName = $isDoubleForeignKey ? "record" : "id";
-    my @paramNames = ("", "", $deleteByPrimaryKeyParamName, "record", "record", "id", "record", "record", "condition");
-    # 联合主键表的参数类型是: 当前类 而非 int
-    my $deleteByPrimaryKeyParamType = $isDoubleForeignKey ? $curEntityClassName : "int";
-    my @paramTypes = ("", "", $deleteByPrimaryKeyParamType, $curEntityClassName, $curEntityClassName, "int", $curEntityClassName, $curEntityClassName, "String");
+    my $primaryKeyParamName = $entityHaveBaseClass == 1 ? "key" : $primaryKeyId;
+    my $primaryKeyParamType = $entityHaveBaseClass == 1 ? $curEntityKeyClassName : "int";
+    # 参数名称
+    my @paramNames = ("", "", $primaryKeyParamName, "record", "record", $primaryKeyParamName, "record", "record", "condition");
+    # 参数类型
+    my @paramTypes = ("", "", $primaryKeyParamType, $curEntityClassName, $curEntityClassName, $primaryKeyParamType, $curEntityClassName, $curEntityClassName, "String");
+    # 返回类型
     my @returnTypes = ("", "", "int", $curEntityClassName, $curEntityClassName, $curEntityClassName, $curEntityClassName, $curEntityClassName, "List<".$curEntityClassName.">");
 
     # 这两个输出的结果是完完全全不一样
@@ -169,19 +242,46 @@ sub getDaoMethodComments {
         my $daoImplSQLAction = $daoImplSQLActions[$i];
         my $returnType = @returnTypes[$i];
         if ($line =~ /$keyword/) {
+
+
             my $methodComments = $Config->{mapping}->{$keyword};
             my $paramNameDesc = "";
             my $returnTypeDesc = "";
-            if ($paramType eq "int") {
-                $paramNameDesc = $Config->{analysis}->{$paramName};
-                $returnTypeDesc = $paramType;
-            } elsif ($paramType eq "String") {
+            my $seeParamTypeDesc = "";
+
+
+            if ($keyword eq "deleteByPrimaryKey") {
+                if ($entityHaveBaseClass == 1) {
+                    $paramNameDesc = "联合主键";
+                }
+                else {
+                    $paramNameDesc = "id";
+                }
+                $returnTypeDesc = "int";
+                $seeParamTypeDesc = $paramType;
+            }
+            elsif ($keyword eq "selectByPrimaryKey") {
+                if ($entityHaveBaseClass == 1) {
+                    $paramNameDesc = "联合主键";
+                }
+                else {
+                    $paramNameDesc = "id";
+                }
+                $returnTypeDesc = $destEntityPackage.".".$returnType;
+                $seeParamTypeDesc = $paramType;
+            }
+            elsif ($keyword eq "queryByCondition") {
                 $paramNameDesc = "查询条件";
                 $returnTypeDesc = "List<".$destEntityPackage.".".$curEntityClassName.">";
-            } else {
+                $seeParamTypeDesc = $paramType;
+            }
+            else {
                 $paramNameDesc = $Config->{className}->{lc($paramType)}."记录";
                 $returnTypeDesc = $destEntityPackage.".".$paramType;
+                $seeParamTypeDesc = $returnTypeDesc;
             }
+
+            
             # print "keyword: $keyword\n"; 
             # print "paramType: $paramType\n"; 
             # print "paramName: $paramName\n"; 
@@ -206,7 +306,7 @@ sub getDaoMethodComments {
             $daoImplContent .= "     * ".$methodComments."\(非 Javadoc\)\n";
             $daoImplContent .= "     * \@param ".$paramName." ".$paramNameDesc."\n";
             $daoImplContent .= "     * \@return : ".$returnTypeDesc."\n";
-            $daoImplContent .= "     * \@see ".$destDaoPackage.".".$destDaoInterfaceName."\#".$keyword."\(".$returnTypeDesc."\)\n";
+            $daoImplContent .= "     * \@see ".$destDaoPackage.".".$destDaoInterfaceName."\#".$keyword."\(".$seeParamTypeDesc."\)\n";
             $daoImplContent .= "     *\n";
             $daoImplContent .= "     */\n";
             $daoImplContent .= "    public ".$returnType." ".$keyword."\(".$paramType." ".$paramName."\) {\n";
@@ -235,24 +335,468 @@ sub getDaoMethodComments {
     }
 
     if ($line =~ /}/) { # 添加一个按照条件查询的接口
-        if (!$isDoubleForeignKey) { # 只有在非联合主键的情况下使用
-            my $addLine = "    List<".$curEntityClassName."> queryByCondition(String condition);\n";
-            $newLine = getDaoMethodComments($addLine);
-        }
+       
+        my $addLine = "    List<".$curEntityClassName."> queryByCondition(String condition);\n";
+        $newLine = getDaoMethodComments($addLine);
+    
 
         $daoImplContent .= "}\n";
     }
 
-    # 联合主键生成的删除函数是:
-    # int deleteByPrimaryKey(UserRoleKey key);
-    # 要更换成: int deleteByPrimaryKey(UserRoleKey record);
-    if ($line =~ /deleteByPrimaryKey\(([^"]+) ([^"]+)\);/ && $isDoubleForeignKey) {
-        my $matchParamName = $2;
-        $line =~ s/$matchParamName/record/g;
-    }
+
     $newLine .= $line;
 
     return $newLine;
+}
+
+
+
+# 导出entity.java
+sub exportEntityFile {
+    my $entityCode = "";
+    if (open(ENTITYFILE, $inputEntityFile)) {
+        while ($line = <ENTITYFILE>) {
+            my $newLine = "";
+            #处理package包路径，将generator生成的包路径，替换为工程结构的包路径
+            if ($line =~ /package.$originEntityPackage/) { # 包名
+                $newLine = "package ".$destEntityPackage.";\n";
+            } elsif ($line =~ /public class /) { # 类注释
+
+                if ($line =~ /public class ([^"]+) extends /) {
+                    $entityHaveBaseClass = 1;
+                }
+                else {
+                    $entityHaveBaseClass = 0;
+                }
+                # print "line: $line\n";
+                # print "entityHaveBaseClass: $entityHaveBaseClass\n";
+
+
+                $newLine .= "/**\n";
+                $newLine .= " *\n";
+                $newLine .= " * \@Project : ".$projectFullName."\n";
+                $newLine .= " * \@Package : ".$destEntityPackage."\n";
+                $newLine .= " * \@Class : ".$curEntityClassName."\n";
+                $newLine .= " * \@Description : ".getClassNameDesc()."层实体类\n";
+                $newLine .= " * \@author : ".$author."\n";
+                $newLine .= " * \@CreateDate : ".$dateString."\n";
+                $newLine .= " * \@version : ".$version."\n";
+                $newLine .= " * \@Copyright : ".$copyright."\n";
+                $newLine .= " * \@Reviewed : \n";
+                $newLine .= " * \@UpdateLog : Name    Date    Reason/Contents\n";
+                $newLine .= " *             ---------------------------------------\n";
+                $newLine .= " *                ***      ****    ****\n";
+                $newLine .= " *\n";
+                $newLine .= " */\n";
+                $newLine .= $line;
+            } elsif ($line =~ /private ([^"]+) ([^"]+);/) { # 属性注释
+                my $propertyType = $1;
+                my $propertyName = $2;
+                my $propertyNameDesc = getPropertyNameDesc($propertyName);
+
+                # print "pro  propertyName:       $curEntityClassName      $propertyName    $propertyNameDesc\n";
+
+                # print "输出propertyType:  $propertyType\n";
+                # print "输出propertyName:  $propertyName\n";
+                # print "输出propertyNameDesc:  $propertyNameDesc\n";
+                $newLine .= "    /**".$propertyNameDesc."**/\n";
+                $newLine .= $line;
+            } elsif ($line =~ /public void set([^"]+)\(([^"]+) ([^"]+)\)/) { # set 方法
+                my $propertyName = $1;
+                my $paramType = $2;
+                my $paramName = $3;
+                my $propertyNameDesc = getPropertyNameDesc($propertyName);
+
+                # print "propertyName:   $propertyName \n";
+                # print "propertyNameDesc:   $propertyNameDesc \n";
+
+                # print "set  propertyName:       $curEntityClassName      $propertyName    $propertyNameDesc\n";
+                # print "输出 set propertyName:  $propertyName\n";
+                # print "输出 set propertyNameDesc:  $propertyNameDesc\n";
+                # print "输出 set paramType:  $paramType\n";
+                # print "输出 set paramName:  $paramName\n";
+                $newLine .= "    /**\n";
+                $newLine .= "     *\n";
+                $newLine .= "     * \@Method : set".$propertyName."\n";
+                $newLine .= "     * \@Description : 设置".$propertyNameDesc."\n";
+                $newLine .= "     * \@param ".$paramName." : ".$propertyNameDesc."\n";
+                $newLine .= "     * \@author : ".$author."\n";
+                $newLine .= "     * \@CreateDate : ".$dateString."\n";
+                $newLine .= "     *\n";
+                $newLine .= "     */\n";
+                $newLine .= $line;
+            } elsif ($line =~ /public ([^"]+) get([^"]+)\(\)/) {
+                my $propertyName = $2;
+                my $returnType = $1;
+                my $propertyNameDesc = getPropertyNameDesc($propertyName);
+
+                # print "get  propertyName:       $curEntityClassName      $propertyName    $propertyNameDesc\n";
+
+                # print "输出 get propertyName:  $propertyName\n";
+                # print "输出 get propertyNameDesc:  $propertyNameDesc\n";
+                # print "输出 get returnType:  $returnType\n";
+                $newLine .= "    /**\n";
+                $newLine .= "     *\n";
+                $newLine .= "     * \@Method : get".$propertyName."\n";
+                $newLine .= "     * \@Description : 获取".$propertyNameDesc."\n";
+                $newLine .= "     * \@return : ".$returnType."\n";
+                $newLine .= "     * \@author : ".$author."\n";
+                $newLine .= "     * \@CreateDate : ".$dateString."\n";
+                $newLine .= "     *\n";
+                $newLine .= "     */\n";
+                $newLine .= $line;
+            } else {
+                $newLine = $line;
+            }
+            # print "输出Line:     $line";
+            # print "输出newLine:  $newLine";
+            $entityCode .= $newLine;
+        }
+        close(ENTITYFILE);
+        
+
+        mkpath($outputEntityFileDir, 1, 0777);
+
+        # print "inputEntityFile:  $inputEntityFile\n";
+        # print "outputEntityFileDir:  $outputEntityFileDir\n";
+        # print "outputEntityFile:  $outputEntityFile\n";
+
+        open(OUTENTITY, ">$outputEntityFile");
+        print OUTENTITY ($entityCode);
+        close(OUTENTITY);
+
+
+        # delete old file
+        unlink($projectEntityFile);
+        # copy new file
+        copy($outputEntityFile, $projectEntityFileDir);
+
+
+
+    } else {
+        print "无法打开Entity文件: $inputEntityFile\n";
+    }
+
+    if ($entityHaveBaseClass == 1) {
+        exportEntityKeyFile();
+    }
+    
+}
+
+# 导出entityKey.java
+sub exportEntityKeyFile {
+
+    my $entityCode = "";
+    if (open(ENTITYFILE, $inputEntityKeyFile)) {
+        while ($line = <ENTITYFILE>) {
+            my $newLine = "";
+            #处理package包路径，将generator生成的包路径，替换为工程结构的包路径
+            if ($line =~ /package.$originEntityPackage/) { # 包名
+                $newLine = "package ".$destEntityPackage.";\n";
+            } elsif ($line =~ /public class /) { # 类注释
+
+
+                $newLine .= "/**\n";
+                $newLine .= " *\n";
+                $newLine .= " * \@Project : ".$projectFullName."\n";
+                $newLine .= " * \@Package : ".$destEntityPackage."\n";
+                $newLine .= " * \@Class : ".$curEntityKeyClassName."\n";
+                $newLine .= " * \@Description : ".getClassNameDesc()."层实体类\n";
+                $newLine .= " * \@author : ".$author."\n";
+                $newLine .= " * \@CreateDate : ".$dateString."\n";
+                $newLine .= " * \@version : ".$version."\n";
+                $newLine .= " * \@Copyright : ".$copyright."\n";
+                $newLine .= " * \@Reviewed : \n";
+                $newLine .= " * \@UpdateLog : Name    Date    Reason/Contents\n";
+                $newLine .= " *             ---------------------------------------\n";
+                $newLine .= " *                ***      ****    ****\n";
+                $newLine .= " *\n";
+                $newLine .= " */\n";
+                $newLine .= $line;
+            } elsif ($line =~ /private ([^"]+) ([^"]+);/) { # 属性注释
+                my $propertyType = $1;
+                my $propertyName = $2;
+                my $propertyNameDesc = getPropertyNameDesc($propertyName);
+
+                # print "pro  propertyName:       $curEntityClassName      $propertyName    $propertyNameDesc\n";
+
+                # print "输出propertyType:  $propertyType\n";
+                # print "输出propertyName:  $propertyName\n";
+                # print "输出propertyNameDesc:  $propertyNameDesc\n";
+                $newLine .= "    /**".$propertyNameDesc."**/\n";
+                $newLine .= $line;
+            } elsif ($line =~ /public void set([^"]+)\(([^"]+) ([^"]+)\)/) { # set 方法
+                my $propertyName = $1;
+                my $paramType = $2;
+                my $paramName = $3;
+                my $propertyNameDesc = getPropertyNameDesc($propertyName);
+
+                print "propertyName:   $propertyName \n";
+                print "propertyNameDesc:   $propertyNameDesc \n";
+
+                # print "set  propertyName:       $curEntityClassName      $propertyName    $propertyNameDesc\n";
+                # print "输出 set propertyName:  $propertyName\n";
+                # print "输出 set propertyNameDesc:  $propertyNameDesc\n";
+                # print "输出 set paramType:  $paramType\n";
+                # print "输出 set paramName:  $paramName\n";
+                $newLine .= "    /**\n";
+                $newLine .= "     *\n";
+                $newLine .= "     * \@Method : set".$propertyName."\n";
+                $newLine .= "     * \@Description : 设置".$propertyNameDesc."\n";
+                $newLine .= "     * \@param ".$paramName." : ".$propertyNameDesc."\n";
+                $newLine .= "     * \@author : ".$author."\n";
+                $newLine .= "     * \@CreateDate : ".$dateString."\n";
+                $newLine .= "     *\n";
+                $newLine .= "     */\n";
+                $newLine .= $line;
+            } elsif ($line =~ /public ([^"]+) get([^"]+)\(\)/) {
+                my $propertyName = $2;
+                my $returnType = $1;
+                my $propertyNameDesc = getPropertyNameDesc($propertyName);
+
+                # print "get  propertyName:       $curEntityClassName      $propertyName    $propertyNameDesc\n";
+
+                # print "输出 get propertyName:  $propertyName\n";
+                # print "输出 get propertyNameDesc:  $propertyNameDesc\n";
+                # print "输出 get returnType:  $returnType\n";
+                $newLine .= "    /**\n";
+                $newLine .= "     *\n";
+                $newLine .= "     * \@Method : get".$propertyName."\n";
+                $newLine .= "     * \@Description : 获取".$propertyNameDesc."\n";
+                $newLine .= "     * \@return : ".$returnType."\n";
+                $newLine .= "     * \@author : ".$author."\n";
+                $newLine .= "     * \@CreateDate : ".$dateString."\n";
+                $newLine .= "     *\n";
+                $newLine .= "     */\n";
+                $newLine .= $line;
+            } else {
+                $newLine = $line;
+            }
+            # print "输出Line:     $line";
+            # print "输出newLine:  $newLine";
+            $entityCode .= $newLine;
+        }
+        close(ENTITYFILE);
+        
+
+        mkpath($outputEntityFileDir, 1, 0777);
+
+        # print "inputEntityFile:  $inputEntityFile\n";
+        # print "outputEntityFileDir:  $outputEntityFileDir\n";
+        # print "outputEntityFile:  $outputEntityFile\n";
+
+        open(OUTENTITY, ">$outputEntityKeyFile");
+        print OUTENTITY ($entityCode);
+        close(OUTENTITY);
+
+
+        # delete old file
+        unlink($projectEntityKeyFile);
+        # copy new file
+        copy($outputEntityKeyFile, $projectEntityFileDir);
+
+
+
+    } else {
+        print "无法打开Entity文件: $inputEntityKeyFile\n";
+    }
+}
+
+sub exportMapperFile {
+    my $mapperXml = "";
+    my $xmlCode = "";
+    print "inputMapperFile:  $inputMapperFile\n";
+    if (open(XMLFILE, $inputMapperFile)) {
+        while ($line = <XMLFILE>) {
+            my $newLine = "";
+            $newLine .= getMappingComments($line);
+            $newLine .= $line;
+            # print "输出line   ".$line;
+            # print "输出newline".$newLine;
+            $xmlCode .= $newLine;
+        }
+        close(XMLFILE);
+        
+        # 不存在queryByCondition方法时的处理
+        unless($xmlCode =~ /"queryByCondition"/) {
+            my $sqlQueryByCondition = "  <select id=\"queryByCondition\" resultMap=\"BaseResultMap\" parameterType=\"java.lang.String\" >\n";
+            $addCode = "";
+            $addCode .= getMappingComments($sqlQueryByCondition);
+            $addCode .= $sqlQueryByCondition;
+            $addCode .= "    select\n";
+            $addCode .= "    <include refid=\"Base_Column_List\" />\n";
+            $addCode .= "    from ".$tableName."\n";
+            $addCode .= "    where \${value}\n";
+            $addCode .= "  </select>\n";
+            $addCode .= "</mapper>\n";
+
+            # print "输出addCode".$addCode;
+            if($xmlCode =~ /"Base_Column_List"/){ #存在 Base_Column_List
+                $xmlCode =~ s/\<\/mapper\>/$addCode/;
+            }
+        }
+        
+        #替换mapper文件中的包路径
+        #generator生成的类type为cn.yiyizuche.yyoa.entity.类名，需要替换成工程的包路径下的类
+        my $oldType = $originEntityPackage.".".$curEntityClassName;
+        my $newType = $destEntityPackage.".".$curEntityClassName;
+
+        # print "输出旧xmlCode".$xmlCode;
+        $xmlCode =~ s/$oldType/$newType/g;
+        # print "输出新xmlCode".$xmlCode;
+        
+        #根据目录结构创建文件路径，然后将文件写入
+        mkpath($outputMapperFileDir, 1, 0777); #参数1为是否打印目录，0777为系统内部权限
+        mkpath($outputMapperExtendFileDir, 1, 0777); 
+        # print "outputMapperFileDir:  $outputMapperFileDir\n";
+        # print "outputMapperExtendFileDir:  $outputMapperExtendFileDir\n";
+        # print "outputMapperFile:  $outputMapperFile\n";
+        open(DATAFILE, ">$outputMapperFile");
+        print DATAFILE ($xmlCode);
+        close(DATAFILE);
+
+
+        # delete old file
+        unlink($projectMapperFile);
+        # copy new file
+        copy($outputMapperFile, $projectMapperFileDir);
+    } else {
+        print "无法打开文件: $inputMapperFile\n";
+    }
+}
+
+
+sub exportDaoAndDaoImplFile {
+    # 根据generator生成的IDao接口生成实现
+    my $idaoCode = "";
+    print "inputDaoFile:  $inputDaoFile\n";
+
+    #读取接口文件获取主键类型
+    if (open(DAOFILE, $inputDaoFile)) {
+        # 开始处理dao文件的时候,先把daoImplContent置空
+        $daoImplContent = "";
+
+        # 是否添加了import
+        my $haveAddImport = 0;
+        while($line = <DAOFILE>) {
+            my $newLine = "";
+            if ($line =~ /package /) {
+                $newLine .= "package ".$destDaoPackage.";\n";
+
+                # dao impl
+                $daoImplContent .= "package ".$destDaoImplPackage.";\n";
+                $daoImplContent .= "\n";
+
+            } elsif ($line =~ /import/) {
+                if ($haveAddImport == 0) {
+                    $newLine .= "import ".$destEntityPackage.".".$curEntityClassName.";\n";
+                    if ($entityHaveBaseClass == 1) {
+                        $newLine .= "import ".$destEntityPackage.".".$curEntityClassName."Key;\n";
+                    }
+                    $newLine .= "import java.util.List;\n";
+                    
+                    $daoImplContent .= "import java.util.List;\n";
+                    $daoImplContent .= "import org.springframework.stereotype.Repository;\n";
+                    $daoImplContent .= "import com.yicoding.common.base.MyBatisDao;\n";
+                    $daoImplContent .= "import ".$destEntityPackage.".".$curEntityClassName.";\n";
+                    if ($entityHaveBaseClass == 1) {
+                        $daoImplContent .= "import ".$destEntityPackage.".".$curEntityClassName."Key;\n";
+                    }
+                    $daoImplContent .= "import ".$destDaoPackage.".".$destDaoInterfaceName.";\n";
+
+                    $haveAddImport = 1;
+                }
+
+            } elsif ($line =~ /public interface/) {
+                $newLine .= "/**\n";
+                $newLine .= " *\n";
+                $newLine .= " * \@Project : ".$projectFullName."\n";
+                $newLine .= " * \@Package : ".$destDaoPackage."\n";
+                $newLine .= " * \@Class : ".$destDaoInterfaceName."\n";
+                $newLine .= " * \@Description : ".getClassNameDesc()."层接口\n";
+                $newLine .= " * \@author : ".$author."\n";
+                $newLine .= " * \@CreateDate : ".$dateString."\n";
+                $newLine .= " * \@version : ".$version."\n";
+                $newLine .= " * \@Copyright : ".$copyright."\n";
+                $newLine .= " * \@Reviewed : \n";
+                $newLine .= " * \@UpdateLog : Name    Date    Reason/Contents\n";
+                $newLine .= " *             ---------------------------------------\n";
+                $newLine .= " *                ***      ****    ****\n";
+                $newLine .= " *\n";
+                $newLine .= " */\n";
+                $newLine .= "public interface ".$destDaoInterfaceName." {\n";
+
+
+                # dao impl
+                $daoImplContent .= "/**\n";
+                $daoImplContent .= " *\n";
+                $daoImplContent .= " * \@Project : ".$projectFullName."\n";
+                $daoImplContent .= " * \@Package : ".$destDaoImplPackage."\n";
+                $daoImplContent .= " * \@Class : ".$destDaoInterfaceName."Impl\n";
+                $daoImplContent .= " * \@Description : ".getClassNameDesc()."层实现类\n";
+                $daoImplContent .= " * \@author : ".$author."\n";
+                $daoImplContent .= " * \@CreateDate : ".$dateString."\n";
+                $daoImplContent .= " * \@version : ".$version."\n";
+                $daoImplContent .= " * \@Copyright : ".$copyright."\n";
+                $daoImplContent .= " * \@Reviewed : \n";
+                $daoImplContent .= " * \@UpdateLog : Name    Date    Reason/Contents\n";
+                $daoImplContent .= " *             ---------------------------------------\n";
+                $daoImplContent .= " *                ***      ****    ****\n";
+                $daoImplContent .= " *\n";
+                $daoImplContent .= " */\n";
+                $daoImplContent .= "\@Repository\(value = \"".$destDaoImplRepositoryValue."\"\)\n";
+                $daoImplContent .= "public class ".$destDaoImplClassName." extends MyBatisDao implements ".$destDaoInterfaceName." {\n";
+                $daoImplContent .= "\n";
+                $daoImplContent .= "    /**Maaping.xml对应的Namespace*/\n";
+                $daoImplContent .= "    protected static final String NAMESPACE = \"".$destMappingFileName."\";\n";
+
+            } else {
+                $newLine .= getDaoMethodComments($line);
+
+                # print "输出Line   :".$line;
+
+            }
+            # print "输出Line   :".$line;
+            # print "输出newLine:".$newLine;
+            $idaoCode .= $newLine;
+        }
+        close(DAOFILE);
+
+
+        # print "idaoCode:    $idaoCode\n";
+        # print "daoImplContent:    $daoImplContent\n";
+
+        mkpath($outputDaoFileDir, 1, 0777);
+        # print "outputDaoFileDir:  $outputDaoFileDir\n";
+        # print "outputDaoFile:  $outputDaoFile\n";
+        open(OUTDAO, ">$outputDaoFile");
+        print OUTDAO ($idaoCode);
+        close(OUTDAO);
+
+
+        # delete old file
+        unlink($projectDaoFile);
+        # copy new file
+        copy($outputDaoFile, $projectDaoFileDir);
+
+        #生成dao impl实现路径
+        mkpath($outputDaoImplFileDir, 1, 0777);
+        # print "outputDaoImplFileDir:  $outputDaoImplFileDir\n";
+        # print "outputDaoImplFile:  $outputDaoImplFile\n";
+        open(OUTFILE, ">$outputDaoImplFile");
+        print OUTFILE ($daoImplContent);
+        close(OUTFILE);
+
+
+        # delete old file
+        unlink($projectDaoImplFileDir);
+        # copy new file
+        copy($outputDaoImplFile, $projectDaoImplFile);
+
+    } else {
+        print "无法打开文件: $inputDaoFile\n";
+    }
+
 }
 
 
@@ -301,6 +845,8 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
 
             $curTableName = $1;
             $curEntityClassName = $2;
+            $curEntityKeyClassName = $curEntityClassName."Key";
+
             # 是否包含分隔符"_"
             if ($curTableName =~ /$splitFlag/) {
                 @array = split(/$splitFlag/, $curTableName);
@@ -316,17 +862,16 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
                 $curProject = $projectName;
             }
 
-            my $headerName = $curEntityClassName;
+            $headerName = $curEntityClassName;
             # 首字母变小写
             $headerName =~ s/\b\w/\l$&/g;
 
-            my $configInfo = $Config->{package}->{$curTableName};
-            my @configItems = split(/\|/, $configInfo);
-            my $replacePackage = $configItems[0];
-            my $replacePackageDir = $replacePackage;
+            $configInfo = $Config->{package}->{$curTableName};
+            @configItems = split(/\|/, $configInfo);
+            $replacePackage = $configItems[0];
+            $replacePackageDir = $replacePackage;
             $replacePackageDir =~ s/\./\//g;
             
-            $isDoubleForeignKey = $configItems[1];
 
             $destMappingFileName = $curEntityClassName."Mapper";
             $destEntityPackage = $replacePackage.".entity";
@@ -336,358 +881,129 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
             $destDaoInterfaceName = $curEntityClassName."Dao";
             $destDaoImplClassName = $destDaoInterfaceName."Impl";
             $destDaoImplRepositoryValue = $headerName."Dao";
+            $primaryKeyId = $headerName."Id";
 
-            my $srcDir = "./src";
-            my $startDir = "./".$resultCodeDirName;
+            $startDir = "./".$resultCodeDirName;
 
-            my $inputEntityFile = $srcDir."/".$originEntityDir."/".$curEntityClassName.".java";
-            my $outputEntityFileDir = $startDir."/".$projectName."-base/src/main/java/".$replacePackageDir."/entity";
-            my $outputEntityFile = $outputEntityFileDir."/".$curEntityClassName.".java";
-            my $javeEntityFile = $outputEntityFile;
+            $inputEntityFile = $srcDir."/".$originEntityDir."/".$curEntityClassName.".java";
+            $inputEntityKeyFile = $srcDir."/".$originEntityDir."/".$curEntityClassName."Key.java";
+            $outputEntityFileDir = $startDir."/".$projectName."-base/src/main/java/".$replacePackageDir."/entity";
+            $outputEntityFile = $outputEntityFileDir."/".$curEntityClassName.".java";
+            $outputEntityKeyFile = $outputEntityFileDir."/".$curEntityClassName."Key.java";
+            $projectEntityFileDir = $projectRootDir."/".$projectName."-base/src/main/java/".$replacePackageDir."/entity";
+            $projectEntityFile = $projectEntityFileDir."/".$curEntityClassName.".java";
+            $projectEntityKeyFile = $projectEntityFileDir."/".$curEntityClassName."Key.java";
+            $javeEntityFile = $outputEntityFile;
             $javeEntityFile =~ s/$startDir/$javaProjectDir/g;
 
-            my $inputMapperFile = $srcDir."/".$originMapperDir."/".$curEntityClassName."Mapper.xml";
-            my $outputMapperFileDir = $startDir."/".$projectName."-base/src/main/resources/".$replacePackageDir."/entity/mapping";
-            my $outputMapperExtendFileDir = $outputMapperFileDir."/extend";
-            my $outputMapperFile = $outputMapperFileDir."/".$curEntityClassName."Mapper.xml";
+            # entity 是否有xxxKey 的父类, 表是联合主键
+            $entityHaveBaseClass = 0;
+            # 已经测试entity通过了,所以现在开始要默认设置为1, 这样就可以不必测试export entity了
+            $entityHaveBaseClass = 1;
+
+            $inputMapperFile = $srcDir."/".$originMapperDir."/".$curEntityClassName."Mapper.xml";
+            $outputMapperFileDir = $startDir."/".$projectName."-base/src/main/resources/".$replacePackageDir."/entity/mapping";
+            $outputMapperExtendFileDir = $outputMapperFileDir."/extend";
+            $outputMapperFile = $outputMapperFileDir."/".$curEntityClassName."Mapper.xml";
+            $projectMapperFileDir = $projectRootDir."/".$projectName."-base/src/main/resources/".$replacePackageDir."/entity/mapping";
+            $projectMapperFile = $projectMapperFileDir."/".$curEntityClassName."Mapper.xml";
             # my $javeMapperFile = $javaProjectDir."/".$curEntityClassName.".java";
-            my $javeMapperFile = $outputMapperFile;
+            $javeMapperFile = $outputMapperFile;
             $javeMapperFile =~ s/$startDir/$javaProjectDir/g;
 
-            my $javeMapperExtendFileDir = $outputMapperExtendFileDir;
+            $javeMapperExtendFileDir = $outputMapperExtendFileDir;
             $javeMapperExtendFileDir =~ s/$startDir/$javaProjectDir/g;
 
 
-            my $inputDaoFile = $srcDir."/".$originDaoDir."/".$originDaoInterfaceName.".java";
-            my $outputDaoFileDir = $startDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao";
-            my $outputDaoFile = $outputDaoFileDir."/".$destDaoInterfaceName.".java";
-            my $outputDaoImplFileDir = $startDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao/impl";
-            my $outputDaoImplFile = $outputDaoImplFileDir."/".$curEntityClassName."DaoImpl.java";
-
-            my $javeDaoFile = $outputDaoFile;
+            $inputDaoFile = $srcDir."/".$originDaoDir."/".$originDaoInterfaceName.".java";
+            $outputDaoFileDir = $startDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao";
+            $outputDaoFile = $outputDaoFileDir."/".$destDaoInterfaceName.".java";
+            $outputDaoImplFileDir = $startDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao/impl";
+            $outputDaoImplFile = $outputDaoImplFileDir."/".$curEntityClassName."DaoImpl.java";
+            $projectDaoFileDir = $projectRootDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao";
+            $projectDaoFile = $projectDaoFileDir."/".$destDaoInterfaceName.".java";
+            $projectDaoImplFileDir = $projectRootDir."/".$projectName."-".$curModule."/src/main/java/".$replacePackageDir."/dao/impl";
+            $projectDaoImplFile = $projectDaoImplFileDir."/".$curEntityClassName."DaoImpl.java";
+            $javeDaoFile = $outputDaoFile;
             $javeDaoFile =~ s/$startDir/$javaProjectDir/g;
 
 
-            my $javeDaoImplFile = $outputDaoImplFile;
+            $javeDaoImplFile = $outputDaoImplFile;
             $javeDaoImplFile =~ s/$startDir/$javaProjectDir/g;
 
 
 
-            if ($isDoubleForeignKey) {
-                $curEntityClassName = $curEntityClassName."Key";
-                # class name 已经变化了
-                $inputEntityFile = "./src/".$originEntityDir."/".$curEntityClassName.".java";
-                $outputEntityFile = $outputEntityFileDir."/".$curEntityClassName.".java";
-            }
+
+            # print "处理表($curTableName)相关的entity, mapping, dao, daoImpl START\n";
+            # print "curTableName:               $curTableName\n";
+            # print "curEntityKeyClassName:      $curEntityKeyClassName\n";
+            # print "curEntityClassName:         $curEntityClassName\n";
+            # print "destMappingFileName:        $destMappingFileName\n";
+            # print "destEntityPackage:          $destEntityPackage\n";
+            # print "destDaoPackage:             $destDaoPackage\n";
+            # print "destDaoImplPackage:         $destDaoImplPackage\n";
+            # print "originDaoInterfaceName:     $originDaoInterfaceName\n";
+            # print "destDaoInterfaceName:       $destDaoInterfaceName\n";
+            # print "destDaoImplClassName:       $destDaoImplClassName\n";
+            # print "destDaoImplRepositoryValue: $destDaoImplRepositoryValue\n";
+            # print "\n\n\n";
+            # print "srcDir:                      $srcDir\n";
+            # print "startDir:                    $startDir\n";
+
+            # print "inputEntityFile:             $inputEntityFile\n";
+            # print "inputEntityKeyFile:          $inputEntityKeyFile\n";
+            # print "outputEntityFileDir:         $outputEntityFileDir\n";
+            # print "outputEntityFile:            $outputEntityFile\n";
+            # print "outputEntityKeyFile:         $outputEntityKeyFile\n";
+            # print "projectEntityFileDir:        $projectEntityFileDir\n";
+            # print "projectEntityFile:           $projectEntityFile\n";
+            # print "projectEntityKeyFile:        $projectEntityKeyFile\n";
+            # print "javeEntityFile:              $javeEntityFile\n";
+            # print "\n\n\n";
+            # print "inputMapperFile:             $inputMapperFile\n";
+            # print "outputMapperFileDir:         $outputMapperFileDir\n";
+            # print "outputMapperExtendFileDir:   $outputMapperExtendFileDir\n";
+            # print "outputMapperFile:            $outputMapperFile\n";
+            # print "projectMapperFileDir:        $projectMapperFileDir\n";
+            # print "projectMapperFile:           $projectMapperFile\n";
+            # print "javeMapperFile:              $javeMapperFile\n";
+            # print "javeMapperExtendFileDir:     $javeMapperExtendFileDir\n";
+            # print "\n\n\n";
+            # print "inputDaoFile:                $inputDaoFile\n";
+            # print "outputDaoFileDir:            $outputDaoFileDir\n";
+            # print "outputDaoFile:               $outputDaoFile\n";
+            # print "outputDaoImplFileDir:        $outputDaoImplFileDir\n";
+            # print "outputDaoImplFile:           $outputDaoImplFile\n";
+            # print "javeDaoFile:                 $javeDaoFile\n";
+            # print "javeDaoImplFile:             $javeDaoImplFile\n";
 
 
-            print "处理表($curTableName)相关的entity, mapping, dao, daoImpl START\n";
-            print "curTableName:               $curTableName\n";
-            print "curEntityClassName:         $curEntityClassName\n";
-            print "isDoubleForeignKey:         $isDoubleForeignKey\n";
-            print "destMappingFileName:        $destMappingFileName\n";
-            print "destEntityPackage:          $destEntityPackage\n";
-            print "destDaoPackage:             $destDaoPackage\n";
-            print "destDaoImplPackage:         $destDaoImplPackage\n";
-            print "originDaoInterfaceName:     $originDaoInterfaceName\n";
-            print "destDaoInterfaceName:       $destDaoInterfaceName\n";
-            print "destDaoImplClassName:       $destDaoImplClassName\n";
-            print "destDaoImplRepositoryValue: $destDaoImplRepositoryValue\n";
-            print "\n\n\n";
-            print "srcDir:                      $srcDir\n";
-            print "startDir:                    $startDir\n";
-
-            print "inputEntityFile:             $inputEntityFile\n";
-            print "outputEntityFileDir:         $outputEntityFileDir\n";
-            print "outputEntityFile:            $outputEntityFile\n";
-            print "javeEntityFile:              $javeEntityFile\n";
-            print "\n\n\n";
-            print "inputMapperFile:             $inputMapperFile\n";
-            print "outputMapperFileDir:         $outputMapperFileDir\n";
-            print "outputMapperExtendFileDir:   $outputMapperExtendFileDir\n";
-            print "outputMapperFile:            $outputMapperFile\n";
-            print "javeMapperFile:              $javeMapperFile\n";
-            print "javeMapperExtendFileDir:     $javeMapperExtendFileDir\n";
-            print "\n\n\n";
-            print "inputDaoFile:                $inputDaoFile\n";
-            print "outputDaoFileDir:            $outputDaoFileDir\n";
-            print "outputDaoFile:               $outputDaoFile\n";
-            print "outputDaoImplFileDir:        $outputDaoImplFileDir\n";
-            print "outputDaoImplFile:           $outputDaoImplFile\n";
-            print "javeDaoFile:                 $javeDaoFile\n";
-            print "javeDaoImplFile:             $javeDaoImplFile\n";
 
 
-
-
-            #处理entity文件=====================START
+            # 处理entity文件=====================START
             print "-----------------------------------------------------------------------------\n";
             print "处理entity文件 START\n";
-            my $entityCode = "";
-            if (open(ENTITYFILE, $inputEntityFile)) {
-                while ($line = <ENTITYFILE>) {
-                    my $newLine = "";
-                    #处理package包路径，将generator生成的包路径，替换为工程结构的包路径
-                    if ($line =~ /package.$originEntityPackage/) { # 包名
-                        $newLine = "package ".$destEntityPackage.";\n";
-                    } elsif ($line =~ /public class /) { # 类注释
-                        $newLine .= "/**\n";
-                        $newLine .= " *\n";
-                        $newLine .= " * \@Project : ".$projectName."\n";
-                        $newLine .= " * \@Package : ".$destEntityPackage."\n";
-                        $newLine .= " * \@Class : ".$curEntityClassName."\n";
-                        $newLine .= " * \@Description : ".getClassNameDesc()."层实体类\n";
-                        $newLine .= " * \@author : ".$author."\n";
-                        $newLine .= " * \@CreateDate : ".$dateString."\n";
-                        $newLine .= " * \@version : ".$version."\n";
-                        $newLine .= " * \@Copyright : ".$copyright."\n";
-                        $newLine .= " * \@Reviewed : \n";
-                        $newLine .= " * \@UpdateLog : Name    Date    Reason/Contents\n";
-                        $newLine .= " *             ---------------------------------------\n";
-                        $newLine .= " *                ***      ****    ****\n";
-                        $newLine .= " *\n";
-                        $newLine .= " */\n";
-                        $newLine .= $line;
-                    } elsif ($line =~ /private ([^"]+) ([^"]+);/) { # 属性注释
-                        my $propertyType = $1;
-                        my $propertyName = $2;
-                        my $propertyNameDesc = getPropertyNameDesc($propertyName);
-                        # print "输出propertyType:  $propertyType\n";
-                        # print "输出propertyName:  $propertyName\n";
-                        # print "输出propertyNameDesc:  $propertyNameDesc\n";
-                        $newLine .= "    /**".$propertyNameDesc."**/\n";
-                        $newLine .= $line;
-                    } elsif ($line =~ /public void set([^"]+)\(([^"]+) ([^"]+)\)/) { # set 方法
-                        my $propertyName = $1;
-                        my $paramType = $2;
-                        my $paramName = $3;
-                        my $propertyNameDesc = getPropertyNameDesc($propertyName);
-                        # print "输出 set propertyName:  $propertyName\n";
-                        # print "输出 set propertyNameDesc:  $propertyNameDesc\n";
-                        # print "输出 set paramType:  $paramType\n";
-                        # print "输出 set paramName:  $paramName\n";
-                        $newLine .= "    /**\n";
-                        $newLine .= "     *\n";
-                        $newLine .= "     * \@Method : set".$propertyName."\n";
-                        $newLine .= "     * \@Description : 设置".$propertyNameDesc."\n";
-                        $newLine .= "     * \@param ".$paramName." : ".$propertyNameDesc."\n";
-                        $newLine .= "     * \@author : ".$author."\n";
-                        $newLine .= "     * \@CreateDate : ".$dateString."\n";
-                        $newLine .= "     *\n";
-                        $newLine .= "     */\n";
-                        $newLine .= $line;
-                    } elsif ($line =~ /public ([^"]+) get([^"]+)\(\)/) {
-                        my $propertyName = $2;
-                        my $returnType = $1;
-                        my $propertyNameDesc = getPropertyNameDesc($propertyName);
-                        # print "输出 get propertyName:  $propertyName\n";
-                        # print "输出 get propertyNameDesc:  $propertyNameDesc\n";
-                        # print "输出 get returnType:  $returnType\n";
-                        $newLine .= "    /**\n";
-                        $newLine .= "     *\n";
-                        $newLine .= "     * \@Method : get".$propertyName."\n";
-                        $newLine .= "     * \@Description : 获取".$propertyNameDesc."\n";
-                        $newLine .= "     * \@return : ".$returnType."\n";
-                        $newLine .= "     * \@author : ".$author."\n";
-                        $newLine .= "     * \@CreateDate : ".$dateString."\n";
-                        $newLine .= "     *\n";
-                        $newLine .= "     */\n";
-                        $newLine .= $line;
-                    } else {
-                        $newLine = $line;
-                    }
-                    # print "输出Line:     $line";
-                    # print "输出newLine:  $newLine";
-                    $entityCode .= $newLine;
-                }
-                close(ENTITYFILE);
-                
-
-                mkpath($outputEntityFileDir, 1, 0777);
-
-                # print "inputEntityFile:  $inputEntityFile\n";
-                # print "outputEntityFileDir:  $outputEntityFileDir\n";
-                # print "outputEntityFile:  $outputEntityFile\n";
-
-                open(OUTENTITY, ">$outputEntityFile");
-                print OUTENTITY ($entityCode);
-                close(OUTENTITY);
-            } else {
-                print "无法打开Entity文件: $inputEntityFile\n";
-            }
-            
+            exportEntityFile();
             print "处理entity文件 END\n";
-            #处理entity文件=====================END
+            # 处理entity文件=====================END
 
 
             
-            #处理mapper文件=====================START
+            # 处理mapper文件=====================START
             print "-----------------------------------------------------------------------------\n";
             print "处理mapper文件 START\n";
-            my $mapperXml = "";
-            my $xmlCode = "";
-            print "inputMapperFile:  $inputMapperFile\n";
-            if (open(XMLFILE, $inputMapperFile)) {
-                while ($line = <XMLFILE>) {
-                    my $newLine = "";
-                    $newLine .= getMappingComments($line);
-                    $newLine .= $line;
-                    # print "输出line   ".$line;
-                    # print "输出newline".$newLine;
-                    $xmlCode .= $newLine;
-                }
-                close(XMLFILE);
-                
-                #不存在queryByCondition方法时的处理
-                unless($xmlCode =~ /"queryByCondition"/) {
-                    my $sqlQueryByCondition = "  <select id=\"queryByCondition\" resultMap=\"BaseResultMap\" parameterType=\"java.lang.String\" >\n";
-                    $addCode = "";
-                    $addCode .= getMappingComments($sqlQueryByCondition);
-                    $addCode .= $sqlQueryByCondition;
-                    $addCode .= "    select\n";
-                    $addCode .= "    <include refid=\"Base_Column_List\" />\n";
-                    $addCode .= "    from ".$tableName."\n";
-                    $addCode .= "    where \${value}\n";
-                    $addCode .= "  </select>\n";
-                    $addCode .= "</mapper>\n";
-
-                    # print "输出addCode".$addCode;
-                    if($xmlCode =~ /"Base_Column_List"/){ #存在 Base_Column_List
-                        $xmlCode =~ s/\<\/mapper\>/$addCode/;
-                    }
-                }
-                
-                #替换mapper文件中的包路径
-                #generator生成的类type为cn.yiyizuche.yyoa.entity.类名，需要替换成工程的包路径下的类
-                my $oldType = $originEntityPackage.".".$curEntityClassName;
-                my $newType = $destEntityPackage.".".$curEntityClassName;
-                $xmlCode =~ s/$oldType/$newType/g;
-                
-                #根据目录结构创建文件路径，然后将文件写入
-                mkpath($outputMapperFileDir, 1, 0777); #参数1为是否打印目录，0777为系统内部权限
-                mkpath($outputMapperExtendFileDir, 1, 0777); 
-                # print "outputMapperFileDir:  $outputMapperFileDir\n";
-                # print "outputMapperExtendFileDir:  $outputMapperExtendFileDir\n";
-                # print "outputMapperFile:  $outputMapperFile\n";
-                open(DATAFILE, ">$outputMapperFile");
-                print DATAFILE ($xmlCode);
-                close(DATAFILE);
-            } else {
-                print "无法打开文件: $inputMapperFile\n";
-            }
+            exportMapperFile();
             print "处理mapper文件 END\n";
-            #处理mapper文件=====================END
+            # 处理mapper文件=====================END
             
             
             
-            #处理dao&daoImpl文件=====================START
+            # 处理dao&daoImpl文件=====================START
             print "-----------------------------------------------------------------------------\n";
             print "处理dao&daoImpl文件 START\n";
-            #根据generator生成的IDao接口生成实现
-            my $idaoCode = "";
-            print "inputDaoFile:  $inputDaoFile\n";
-
-            #读取接口文件获取主键类型
-            if (open(DAOFILE, $inputDaoFile)) {
-                # 开始处理dao文件的时候,先把daoImplContent置空
-                $daoImplContent = "";
-                while($line = <DAOFILE>) {
-                    my $newLine = "";
-                    if ($line =~ /package /) {
-                        $newLine .= "package ".$destDaoPackage.";\n";
-
-                        # dao impl
-                        $daoImplContent .= "package ".$destDaoImplPackage.";\n";
-                        $daoImplContent .= "\n";
-
-                    } elsif ($line =~ /import/) {
-                        $newLine .= "import ".$destEntityPackage.".".$curEntityClassName.";\n";
-                        # 在非联合主键的时候,才有这个import
-                        if (!$isDoubleForeignKey) {
-                            $newLine .= "import java.util.List;\n";
-                        }
-
-                        # dao impl
-                        if (!$isDoubleForeignKey) {
-                            $daoImplContent .= "import java.util.List;\n";
-                        }
-                        $daoImplContent .= "import org.springframework.stereotype.Repository;\n";
-                        $daoImplContent .= "import cn.yiyizuche.common.base.MyBatisDao;\n";
-                        $daoImplContent .= "import ".$destEntityPackage.".".$curEntityClassName.";\n";
-                        $daoImplContent .= "import ".$destDaoPackage.".".$destDaoInterfaceName.";\n";
-
-                    } elsif ($line =~ /public interface/) {
-                        $newLine .= "/**\n";
-                        $newLine .= " *\n";
-                        $newLine .= " * \@Project : ".$projectName."\n";
-                        $newLine .= " * \@Package : ".$destDaoPackage."\n";
-                        $newLine .= " * \@Class : ".$destDaoInterfaceName."\n";
-                        $newLine .= " * \@Description : ".getClassNameDesc()."层接口\n";
-                        $newLine .= " * \@author : ".$author."\n";
-                        $newLine .= " * \@CreateDate : ".$dateString."\n";
-                        $newLine .= " * \@version : ".$version."\n";
-                        $newLine .= " * \@Copyright : ".$copyright."\n";
-                        $newLine .= " * \@Reviewed : \n";
-                        $newLine .= " * \@UpdateLog : Name    Date    Reason/Contents\n";
-                        $newLine .= " *             ---------------------------------------\n";
-                        $newLine .= " *                ***      ****    ****\n";
-                        $newLine .= " *\n";
-                        $newLine .= " */\n";
-                        $newLine .= "public interface ".$destDaoInterfaceName." {\n";
-
-
-                        # dao impl
-                        $daoImplContent .= "/**\n";
-                        $daoImplContent .= " *\n";
-                        $daoImplContent .= " * \@Project : ".$projectName."\n";
-                        $daoImplContent .= " * \@Package : ".$destDaoImplPackage."\n";
-                        $daoImplContent .= " * \@Class : ".$destDaoInterfaceName."\n";
-                        $daoImplContent .= " * \@Description : ".getClassNameDesc()."层实现类\n";
-                        $daoImplContent .= " * \@author : ".$author."\n";
-                        $daoImplContent .= " * \@CreateDate : ".$dateString."\n";
-                        $daoImplContent .= " * \@version : ".$version."\n";
-                        $daoImplContent .= " * \@Copyright : ".$copyright."\n";
-                        $daoImplContent .= " * \@Reviewed : \n";
-                        $daoImplContent .= " * \@UpdateLog : Name    Date    Reason/Contents\n";
-                        $daoImplContent .= " *             ---------------------------------------\n";
-                        $daoImplContent .= " *                ***      ****    ****\n";
-                        $daoImplContent .= " *\n";
-                        $daoImplContent .= " */\n";
-                        $daoImplContent .= "\@Repository\(value = \"".$destDaoImplRepositoryValue."\"\)\n";
-                        $daoImplContent .= "public class ".$destDaoImplClassName." extends MyBatisDao implements ".$destDaoInterfaceName." {\n";
-                        $daoImplContent .= "\n";
-                        $daoImplContent .= "    /**Maaping.xml对应的Namespace*/\n";
-                        $daoImplContent .= "    protected static final String NAMESPACE = \"".$destMappingFileName."\";\n";
-
-                    } else {
-                        $newLine .= getDaoMethodComments($line);
-                    }
-                    # print "输出Line   :".$line;
-                    # print "输出newLine:".$newLine;
-                    $idaoCode .= $newLine;
-                }
-                close(DAOFILE);
-
-                mkpath($outputDaoFileDir, 1, 0777);
-                # print "outputDaoFileDir:  $outputDaoFileDir\n";
-                # print "outputDaoFile:  $outputDaoFile\n";
-                open(OUTDAO, ">$outputDaoFile");
-                print OUTDAO ($idaoCode);
-                close(OUTDAO);
-
-                #生成dao impl实现路径
-                mkpath($outputDaoImplFileDir, 1, 0777);
-                # print "outputDaoImplFileDir:  $outputDaoImplFileDir\n";
-                # print "outputDaoImplFile:  $outputDaoImplFile\n";
-                open(OUTFILE, ">$outputDaoImplFile");
-                print OUTFILE ($daoImplContent);
-                close(OUTFILE);
-
-            } else {
-                print "无法打开文件: $inputDaoFile\n";
-            }
+            exportDaoAndDaoImplFile();
             print "处理dao$daoImpl文件 END\n";
-            #处理dao&daoImpl文件=====================END
+            # 处理dao&daoImpl文件=====================END
 
 
             print "处理表($curTableName)相关的entity, mapping, dao, daoImpl END\n";
@@ -700,7 +1016,7 @@ if (open(GENERATORFILE, $generatorXmlFile)) {
 }
 
 
-#删除generator.jar 自动生成的代码
+# 删除generator.jar 自动生成的代码
 rmtree('./src');
 
 

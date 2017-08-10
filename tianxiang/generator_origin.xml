@@ -3,7 +3,7 @@
         "http://mybatis.org/dtd/mybatis-generator-config_1_0.dtd">
 <generatorConfiguration>
 	<!-- 数据库驱动包位置 -->
-	<classPathEntry location="../common/mysql-connector-java-5.1.25-bin.jar" />
+	<classPathEntry location="./stub/mysql-connector-java-5.1.25-bin.jar" />
 	<context id="DB2Tables" targetRuntime="MyBatis3">
 		<commentGenerator >  
             <property name="suppressAllComments" value="true"/>
@@ -11,36 +11,27 @@
 		<!-- 数据库链接URL、用户名、密码 -->
 		<!-- 测试 101.200.209.116 -->
 		<!-- 正式 123.57.55.76 -->
-
-		<!-- dbc:mysql://localhost:3306/aiwm    root     rootadmin -->
-
-		<jdbcConnection driverClass="com.mysql.jdbc.Driver" connectionURL="jdbc:mysql://47.92.77.72:3306/tx_dev" userId="root" password="kzh123456yyok">
-
-
-			
+		<jdbcConnection driverClass="com.mysql.jdbc.Driver" connectionURL="jdbc:mysql://192.168.3.127:3306/aiwm" userId="root" password="root">
 		</jdbcConnection>
 		<javaTypeResolver>
 			<property name="forceBigDecimals" value="false" />
 		</javaTypeResolver>
 		<!-- 生成模型的包名和位置 -->
-		<javaModelGenerator targetPackage="tmp.entity" targetProject="src">
+		<javaModelGenerator targetPackage="com.company.project.entity" targetProject="./stub/src">
 			<property name="enableSubPackages" value="true" />
 			<property name="trimStrings" value="true" />
 		</javaModelGenerator>
 		<!-- 生成的映射文件包名和位置 -->
-		<sqlMapGenerator targetPackage="tmp.mapping" targetProject="src">
+		<sqlMapGenerator targetPackage="com.company.project.mapping" targetProject="./stub/src">
 			<property name="enableSubPackages" value="true" />
 		</sqlMapGenerator>
 		<!-- 生成DAO的包名和位置 -->
-		<!-- 这个type非常重要,如果没有它,那么自动代码生成会失败,为什么了????? 希望有缘人帮我解决一下 -->
-		<javaClientGenerator type="XMLMAPPER" targetPackage="tmp.dao" targetProject="src">
+		<javaClientGenerator type="XMLMAPPER" targetPackage="com.company.project.dao" targetProject="./stub/src" implementationPackage="com.company.project.dao.impl">
 			<property name="enableSubPackages" value="true" />
 		</javaClientGenerator>
+
 		<!-- 指定生成的表配置 -->
 		<!-- PC 个人中心 start -->
-
-
-		
 		<table tableName="pc_member" domainObjectName="Member" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
 			<generatedKey column="member_id" sqlStatement="JDBC" />
 			<columnOverride column="member_id" property="memberId" />
@@ -61,23 +52,10 @@
 			<columnOverride column="message_id" property="messageId" />
 		</table>
 
-
-		<table tableName="pc_message_record" domainObjectName="MessageRecord" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
-			<generatedKey column="message_record_id" sqlStatement="JDBC" />
-			<columnOverride column="message_record_id" property="messageRecordId" />
-		</table>
-
 		<table tableName="pc_invoice" domainObjectName="Invoice" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
 			<generatedKey column="invoice_id" sqlStatement="JDBC" />
 			<columnOverride column="invoice_id" property="invoiceId" />
 		</table>
-
-
-		<table tableName="pc_member_sequence" domainObjectName="MemberSequence" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
-			<generatedKey column="member_sequence_id" sqlStatement="JDBC" />
-			<columnOverride column="member_sequence_id" property="memberSequenceId" />
-		</table>
-
 		<!-- PC 个人中心 end -->
 
 		
@@ -239,8 +217,9 @@
 			<columnOverride column="certification_id" property="certificationId" />
 		</table>
 
-		<table tableName="ec_certification_record" domainObjectName="CertificationRecord" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
-				<generatedKey column="certification_record_id" sqlStatement="JDBC" />
+		<table tableName="ec_certificationCancel_record" domainObjectName="CertificationCancelRecord" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
+				<generatedKey column="certificationCancel_record_id" sqlStatement="JDBC" />
+				<columnOverride column="certificationCancel_record_id" property="certificationCancelRecordId" />
 		</table>
 		<table tableName="ec_verified" domainObjectName="Verified" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
 			<generatedKey column="verified_id" sqlStatement="JDBC" />
@@ -328,27 +307,7 @@
 		<!-- 验证码 end -->
 
 
-
-
+		
+		
 	</context>
 </generatorConfiguration>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
