@@ -224,6 +224,11 @@
 			<columnOverride column="batch_room_id" property="batchRoomId" />
 		</table>
 
+
+		<table tableName="ec_batch_room_subject" domainObjectName="BatchRoomSubject" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
+		</table>
+
+
 		<table tableName="ec_room" domainObjectName="Room" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
 			<generatedKey column="room_id" sqlStatement="JDBC" />
 			<columnOverride column="room_id" property="roomId" />
@@ -296,7 +301,7 @@
 
 		<table tableName="ec_reverified_pay" domainObjectName="ReverifiedPay" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
 			<generatedKey column="reverified_pay_id" sqlStatement="JDBC" />
-			<columnOverride column="reverified_pay_id" property="ReverifiedPayId" />
+			<columnOverride column="reverified_pay_id" property="reverifiedPayId" />
 		</table>
 
 		<table tableName="ec_reverified_pay_record" domainObjectName="ReverifiedPayRecord" enableCountByExample="false" enableUpdateByExample="false" enableDeleteByExample="false" enableSelectByExample="false" selectByExampleQueryId="false">
